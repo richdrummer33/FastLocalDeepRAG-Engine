@@ -1,1 +1,6 @@
 workspace/
+models/
+sentence-transformers/
+storage/
+indexed-data/
+index/

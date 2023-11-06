@@ -12,11 +12,15 @@
 ### INSTALLATIONS ###
 # pip install ctransformers[gptq] # apparently required for GGUF models
 # pip install transformers
-# Download Hugging Face models easily with the LM Studio app!!
+# wget https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.1-GGUF/resolve/main/mistral-7b-instruct-v0.1.Q4_K_M.gguf
+# Also can download Hugging Face models manually from LM Studio
 
 ### REFERENCES ###
-# USE THIS: hugging face documentation with code examples:
-#  https://huggingface.co/docs/transformers/main/en/model_doc/mistral
+# USE THIS TUTORIAL:
+#   https://artificialcorner.com/run-mistral7b-quantized-for-free-on-any-computer-2cadc18b45a2
+#
+# HF Tutorial for Mistral 7b:
+#   https://huggingface.co/docs/transformers/main/en/model_doc/mistral
 #
 # "A complete guide to running local LLM models"
 #   https://bootcamp.uxdesign.cc/a-complete-guide-to-running-local-llm-models-3225e4913620
@@ -41,7 +45,8 @@
 # Local Model Comparisons: 
 #   https://github.com/Troyanovsky/Local-LLM-Comparison-Colab-UI
 #
-# Mistral 7b evaluation:
+# Mistral 7b:
+#   "This model is proficient at both roleplaying and storywriting due to its unique nature"
 #   https://www.reddit.com/r/LocalLLaMA/comments/16twtfn/llm_chatrp_comparisontest_mistral_7b_base_instruct/
 # 
 # MythoMax
@@ -74,37 +79,48 @@
 
 #####################################
 
+# for playing notification sounds
+import winsound
+
+class NotificationType:
+    WARNING = "C:\\Windows\\Media\\Windows Exclamation.wav"
+    SUCCESS = "C:\\Windows\\Media\\Speech On.wav"
+
+def play_notification_sound(notification_type):
+    if notification_type == NotificationType.WARNING:
+        sound_path = NotificationType.WARNING
+    elif notification_type == NotificationType.SUCCESS:
+        sound_path = NotificationType.SUCCESS
+    winsound.PlaySound(sound_path, winsound.SND_FILENAME)
+
 # Hugging face transformer classes for generation
 # NOTE: GPU supported (for GGML-formatted models) by the new *c*transformers lib 
 # "Python bindings for the Transformer models implemented in C/C++ using GGML library" (https://github.com/marella/ctransformers)
-from ctransformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig # TextStreamer (not avail in ctransformers, but is avail in transformers)\
-from transformers import AutoTokenizer as AutoTokenizerHF #, AutoModelForCausalLM as AutoModelForCausalLMHF, AutoConfig as AutoConfigHF
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig # TextStreamer (not avail in ctransformers, but is avail in transformers)\
 from transformers import pipeline
 import torch
 import time # sleep is the best medicine
 device = "cuda" # the device to load the model onto
 
-# *********                                                       *********
 # ********* apparently mistral-7b-instruct-v0.1.Q5_K_M.gguf works *********
-# *********                                                       *********
-model_name_or_path = "TheBloke/MythoMax-L2-13B-GGUF" # MythoMax-L2-13B-GGUF" #  "TheBloke/Mistral-7B-OpenOrca"
-model_file = "mythomax-l2-13b.Q4_K_M.gguf" # "mistral-7b.Q4_K_M.gguf"
+# model_name_or_path = "TheBloke/MythoMax-L2-13B-GGUF" # MythoMax-L2-13B-GGUF" #  "TheBloke/Mistral-7B-OpenOrca"
+# model_file = "mythomax-l2-13b.Q4_K_M.gguf" # "mistral-7b.Q4_K_M.gguf"
 
-### SETUP ###
+# >>> SETUP >>>
 print("\033[95m\nLoading Model...\n\033[0m")
-#config = AutoConfig.from_pretrained(model_path_or_repo_id=model_name_or_path)
-model = AutoModelForCausalLM.from_pretrained(model_path_or_repo_id=model_name_or_path, model_file=model_file, local_files_only=True) #, config=config)
-print("\033[95m\nModel Loaded!\n\033[0m")
+# REF: https://huggingface.co/docs/transformers/main/en/model_doc/mistral
+try:
+    model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path="./mistralai/Mistral-7B-v0.1")
+    tokenizer = AutoTokenizer.from_pretrained("./mistralai/Mistral-7B-v0.1", use_fast=True)
+    print("\033[92m\nModel Loaded!\n\033[0m")
+    play_notification_sound(NotificationType.SUCCESS)
+except:
+    print("\033[91m\nModel failed to load!\n\033[0m")
+    play_notification_sound(NotificationType.WARNING)
+    time.sleep(5)
+    exit()
 
-time.sleep(1)
-
-print("\033[95m\nLoading Tokenizer...\n\033[0m")
-# TODO: Fix this error >>>>>>>>>>>>>
-# ValueError: Calling LlamaTokenizerFast.from_pretrained() with the path to a single file or url is not supported for this tokenizer. Use a model identifier or the path to a directory instead.
-tokenizer = AutoTokenizerHF.from_pretrained("config.json")
-# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
-### PROMPT ###
+# >>> PROMPT >>>
 prompt = "Tell me about AI"
 prompt_template=f'''Below is an instruction that describes a task. Write a response that appropriately completes the request.
 
@@ -115,9 +131,20 @@ prompt_template=f'''Below is an instruction that describes a task. Write a respo
 
 '''
 
-### QUERY ###
-tokens = tokenizer(prompt_template, return_tensors='pt').input_ids.cuda()
-output = model._llm.generate(tokens=tokens, temperature=0.7, top_p=0.95, top_k=40)
+# >>> QUERY >>>
+print("\033[95m\nLoading tokenizer!\n\033[0m")
+model_inputs = tokenizer([prompt], return_tensors='pt').to(device) # .input_ids.cuda()
+print("\033[92m\nTokenizer Loaded! Model to GPU\n\033[0m")
+model.to(device) # REF: https://huggingface.co/docs/transformers/main/en/model_doc/mistral
+
+print("\033[95m\nModel generating output from promt...\n\033[0m")
+generated_ids = model.generate(**model_inputs, max_new_tokens=150, temperature=0.7, do_sample=True)
+print("\033[92m\nOutput generated! Decoding output tokens...\n\033[0m")
+tokenizer.batch_decode(generated_ids)[0] # REF: https://huggingface.co/docs/transformers/main/en/model_doc/mistral
+print("\033[92m\nOutput decoded!\n\033[0m")
+
+play_notification_sound(NotificationType.WARNING)
+print("\033[95m\nOutput:\n\033[0m")
 print(tokenizer.decode(output[0]))
 
 # Inference can also be done using transformers' pipeline
