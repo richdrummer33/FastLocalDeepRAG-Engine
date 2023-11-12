@@ -1,6 +1,7 @@
-workspace/
-models/
-sentence-transformers/
-storage/
-indexed-data/
-index/
+/workspace/
+/models/
+/sentence-transformers/
+/storage/
+/indexed-data/
+/index/
+/data/

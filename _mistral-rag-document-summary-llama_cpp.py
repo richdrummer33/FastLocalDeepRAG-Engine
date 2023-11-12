@@ -3,9 +3,9 @@ import winsound
 import torch
 import time
 
-#####################################################################
+#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # MISC CLASSES
-#####################################################################
+#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 # Example Nodes as a knowledge base
 from llama_index.schema import Node
@@ -72,31 +72,31 @@ def parse_choice_select_answer_fn(
         answer_nums.append(int(doc_num))
         answer_relevances.append(int(relevance))
 
+    log_opt = ""
     if not answer_nums:
         if raise_error:
             raise ValueError("No valid answer numbers found.")
         else:
+            print("No valid answer numbers found.")
             answer_nums.append(0)
             answer_relevances.append(int(0))
-    elif len(answer_nums) == 0:
+    if len(answer_nums) == 0:
         print("No answer nums added from relevance matching. Adding top 3.")
+        log_opt = "(top 3)"
         answer_nums = answer_nums[:3]
         answer_relevances = answer_relevances[:3]
-        # set relevances from 10 to 8 if the top relevance is 0
-        relevance_override = 10
-        for x in answer_relevances:
-            if x == 0:
-                answer_relevances[answer_relevances.index(x)] = int(relevance_override)
-            relevance_override -= int(1)
+    
+    relevance_override = 10
+    for x in answer_relevances:
+        if x == 0:
+            answer_relevances[answer_relevances.index(x)] = int(relevance_override)
+        relevance_override -= int(1)
 
     
-    print("\nanswer_nums (top-3): " + str(answer_nums))
-    print("answer_relevances (top-3): " + str(answer_relevances) + "\n")
+    print("\nanswer_nums " + log_opt + ": " + str(answer_nums))
+    print("answer_relevances " + log_opt + ": " + str(answer_relevances) + "\n")
 
     return answer_nums, answer_relevances
-
-
-
 
 
     def __init__(self, name, *args, **kwargs):
@@ -124,18 +124,24 @@ def parse_choice_select_answer_fn(
 
         return all_key_values
 
-#####################################################################
+#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # PROGRAM
-#####################################################################
-
+#>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 #####################
-#### Fields and Definitions
+### Fields and Definitions
 #####################
 model_path = "./models/mistral-7b-instruct-v0.1.Q4_K_M.gguf"
 model_embeddings_path = "./sentence-transformers/all-mpnet-base-v2"
-data_path = "D:/Git/EscapeRoom3DGitLab/Assets/Scripts/Puzzle 8" #"D:\\Git\\Unseen\\Assets\\Code" #"C:/Users/richd/Desktop/test-rag" #"D:/Git/ebook-GPT-translator-refined"
+
+data_path = "D:/Git/Unseen/Assets/Code/_Core" #"C:/Users/richd/Desktop/test-rag" #"D:/Git/ebook-GPT-translator-refined"
 config_llm_path = "./models/Mistral-7B-Instruct-v0.1/config.json" 
+
+# confirm that data_path exists
+import os
+if not os.path.exists(data_path):
+    print("data_path does not exist")
+    exit()
 
 use_gpt = False
 use_doc_summary = False
@@ -144,12 +150,13 @@ SUMMARY_QUERY = (
     """You are a Unity developer. Write a class summary:
     Class Definition: Name, base class, and interfaces (if applicable).
     Class Role: Define the class's functionality. If applicable, also note any significant class references, dependents or dependencies.
-    Features: Take note of any unique feature implementations such as Photon RPC calls"""
+    Methods: List all method names, with attributes in square brackets if applicable.
+    Features: Take note of any special features such as Photon RPC calls"""
 )
 
 
 #####################
-#### Load/imit the local gguf LLM (via llama cpp)
+### Load/init the local gguf LLM (via llama cpp)
 #####################
 from llama_index.llms import LlamaCPP
 from llama_index.llms.llama_utils import (
@@ -166,7 +173,7 @@ if not use_gpt:
         temperature=0.1,
         max_new_tokens=256,
         # llama2 has a context window of 4096 tokens, but we set it lower to allow for some wiggle room
-        context_window=3900,
+        context_window=5500,
         # kwargs to pass to __call__()
         generate_kwargs={},
         # kwargs to pass to __init__()
@@ -184,19 +191,19 @@ else:
     from llama_index.llms import OpenAI
     llm = OpenAI(temperature=0.1, model="gpt-4")
 
-#####################
+###################################
 ### Embeddings and service context
-### FOR LLAMA CPP (GGUF COMPAT): https://gpt-index.readthedocs.io/en/latest/examples/llm/llama_2_llama_cpp.html
-#####################
+### NOTE FOR LLAMA CPP (GGUF COMPAT): https://gpt-index.readthedocs.io/en/latest/examples/llm/llama_2_llama_cpp.html
+###################################
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-print("\033[95m\nEmbeddings...\n\033[0m")
+print("\033[95m\nLoading embeddings model...\n\033[0m")
 embed_model = HuggingFaceEmbeddings(model_name=model_embeddings_path)
 
 
-#####################
+##############################
 ### Set things up for indexer
-### REF: https://blog.llamaindex.ai/a-new-document-summary-index-for-llm-powered-qa-systems-9a32ece2f9ec
-#####################
+### NOTE: https://blog.llamaindex.ai/a-new-document-summary-index-for-llm-powered-qa-systems-9a32ece2f9ec
+##############################
 print("\033[95m\nIndexing...\n\033[0m")
 from llama_index import (
     SimpleDirectoryReader,
@@ -205,24 +212,11 @@ from llama_index import (
     ServiceContext,
     set_global_service_context
 )
-# Defines the llm and embed models and chunk size to retreive
-service_context = ServiceContext.from_defaults(
-    chunk_size=2048, # 1024
-    llm=llm,
-    embed_model=embed_model
-)
-set_global_service_context(service_context) # Necessary? Maybe not 
-
-
-#####################
-### Set up response synth - generates response from llm for a user query and a given set of text chunks
-### REF: https://gpt-index.readthedocs.io/en/latest/module_guides/querying/response_synthesizers/root.html
-#####################
+# Set up response synth - generates response from llm for a user query and a given set of text chunks
+# NOTE: https://gpt-index.readthedocs.io/en/latest/module_guides/querying/response_synthesizers/root.html
 from llama_index.response_synthesizers import ResponseMode, get_response_synthesizer
 # For synthesizing summaries for the docs https://blog.llamaindex.ai/...
-response_synthesizer = get_response_synthesizer(response_mode=ResponseMode.TREE_SUMMARIZE)
-# EG. USAGE: response = response_synthesizer.synthesize("query text", nodes=[Node(text="text"), ...])
-
+response_synthesizer = get_response_synthesizer(response_mode=ResponseMode.TREE_SUMMARIZE) # EG. USAGE: response = response_synthesizer.synthesize("query text", nodes=[Node(text="text"), ...])
 ### Optional user verifiation of summaries
 # test_query_llm_response = input("\nTest response synth on test data: ")
 # if len(test_query_llm_response) > 0:
@@ -232,20 +226,40 @@ response_synthesizer = get_response_synthesizer(response_mode=ResponseMode.TREE_
 #     )
 
 
-#####################
+###########################
+### Set up service context
+# Defines the llm and embed models and chunk size to retreive
+# NOTE: Memory-pool issues on docs ingestion: https://github.com/imartinez/privateGPT/issues/181
+#       Should I also increase LLM context window to avoid? Tradeoffs with performance/batching?
+###########################
+service_context = ServiceContext.from_defaults(
+    chunk_size=400, # 1024 # 2048 (I think this too large & caused mem errors on ingest)
+    chunk_overlap=40,
+    llm=llm,
+    embed_model=embed_model
+)
+# set_global_service_context(service_context) # Necessary? Maybe not 
+
+###################
 ### Index the docs
-#####################
+###################
 from llama_index import VectorStoreIndex, SimpleDirectoryReader, DocumentSummaryIndex, StorageContext
 from llama_index.indices.loading import load_index_from_storage
-print("\033[95m\nGetting documents...\n\033[0m")
-documents = SimpleDirectoryReader(data_path, recursive=True, exclude=['*.meta']).load_data()
-#print("Num docs: " + str(documents.__doc__.count()))
-doc_summary_index = None
-try:
-    storage_context = StorageContext.from_defaults(persist_dir="index")
-    doc_summary_index = load_index_from_storage(storage_context)
-    print("\033[95m\nLoaded index from storage...\n\033[0m")
-except:
+
+build_new_index = input("\033[95m\nPress N to skip loading index from storage...\n\033[0m")
+if(build_new_index.lower == ""):
+    try:
+        storage_context = StorageContext.from_defaults(persist_dir="index")
+        doc_summary_index = load_index_from_storage(storage_context)
+        print("\033[95m\nLoaded index from storage...\n\033[0m")
+    except:
+        print("\033[95m\nFailed to load index from storage...\n\033[0m")
+        build_new_index = None
+else:
+    print("\033[95m\nFetch documents...\n\033[0m")
+    reader  = SimpleDirectoryReader(data_path, recursive=True, exclude=['*.meta', '*.preset', '*.bnk', '*.wem', '*.fbx', '*.obj', '*.wav', '*.onnx', '*.otf', '*.mat', '*.png', '*.prefab', '*.unity']) # '*.txt', '.json']
+    documents = reader.load_data()
+    print("\033[95m\nIndexing documents data...\n\033[0m")
     doc_summary_index = DocumentSummaryIndex.from_documents(
         documents,
         service_context=service_context,
@@ -256,59 +270,72 @@ except:
     doc_summary_index.storage_context.persist("index")  
 
 ### Optional user verifiation of summaries
-doc_id = "_"
-while len(doc_id) > 0:
-    doc_id = input("\nEnter doc-ID to print doc summary: ")
-    try:
-        summary = doc_summary_index.get_document_summary(doc_id)
-        print(summary)
-    except Exception as e:
-        print("GET DOC SUMMARY FAILED " + str(e))
+#doc_id = "_"
+#while len(doc_id) > 0:
+#    doc_id = input("\nEnter doc-ID to print doc summary: ")
+#    try:
+#        summary = doc_summary_index.get_document_summary(doc_id)
+#        print(summary)
+#    except Exception as e:
+#        print("GET DOC SUMMARY FAILED " + str(e))
 
-#####################
+##########################
 ### Set up docs retreiver
 ### REF: https://gpt-index.readthedocs.io/en/latest/examples/index_structs/doc_summary/DocSummary.html
-#####################
-from llama_index.indices.document_summary import DocumentSummaryIndexLLMRetriever
-retriever = DocumentSummaryIndexLLMRetriever(
-    doc_summary_index,
-    # choice_select_prompt=choice_select_prompt,
-    # choice_batch_size=choice_batch_size,
-    # format_node_batch_fn=format_node_batch_fn,
-    # choice_batch_size=10,
-    # choice_top_k=5, # 5 gave great answer!
-    parse_choice_select_answer_fn=parse_choice_select_answer_fn,
-    service_context=service_context
-)
+##########################
+from llama_index.indices.document_summary import DocumentSummaryIndexLLMRetriever, DocumentSummaryIndexEmbeddingRetriever
+retriever = None
+selection = input("Enter 1 for LLM retriever, 2 for Embedding retriever: ")
+
+if selection == "1":
+    retriever = DocumentSummaryIndexLLMRetriever(
+        doc_summary_index,
+        # choice_select_prompt=choice_select_prompt,
+        # choice_batch_size=choice_batch_size,
+        # format_node_batch_fn=format_node_batch_fn,
+        # choice_batch_size=10,
+        # choice_top_k=5, # 5 gave great answer!
+        parse_choice_select_answer_fn=parse_choice_select_answer_fn,
+        service_context=service_context
+    )
+else:
+    retriever = DocumentSummaryIndexEmbeddingRetriever(
+        doc_summary_index,
+        # choice_select_prompt=choice_select_prompt,
+        # choice_batch_size=choice_batch_size,
+        # format_node_batch_fn=format_node_batch_fn,
+        # choice_batch_size=10,
+        # choice_top_k=5, # 5 gave great answer!
+        parse_choice_select_answer_fn=parse_choice_select_answer_fn,
+        service_context=service_context
+    )
 
 # The retriever will retrieve a set of relevant nodes for a given index.
 # Optional user verifiation of retreival matching
-retreival_match = "_"
-while len(retreival_match) > 0:
-    retreival_match = input("\nEnter string to test retreival: ")
-    try:
-        retrieved_nodes = retriever.retrieve(retreival_match)
-        try:
-            print("retrieved_nodes: " + str(len(retrieved_nodes)))
-            print("score: " + str(retrieved_nodes[0].score))
-            print("text: " + retrieved_nodes[0].node.get_text()) 
-        except Exception as e:
-            print("PRINTING RETREIVED NODES FAILED: " + str(e))
-    except Exception as e:
-        print(f"An exception occurred: {e}")
-        traceback.print_exc()
-        stack_trace = traceback.format_exc()
-        print(stack_trace)
+# retreival_match = "_"
+# while len(retreival_match) > 0:
+#     retreival_match = input("\nEnter string to test retreival: ")
+#     try:
+#         retrieved_nodes = retriever.retrieve(retreival_match)
+#         try:
+#             print("retrieved_nodes: " + str(len(retrieved_nodes)))
+#             print("score: " + str(retrieved_nodes[0].score))
+#             print("text: " + retrieved_nodes[0].node.get_text()) 
+#         except Exception as e:
+#             print("PRINTING RETREIVED NODES FAILED: " + str(e))
+#     except Exception as e:
+#         print(f"An exception occurred: {e}")
+#         traceback.print_exc()
+#         stack_trace = traceback.format_exc()
+#         print(stack_trace)
 
 
-
-
-#####################
+###########################
 ### Set up query engine...
 ### Response/summarization mode can include auto-iterative prompt refinement
 ### refine, compact, tree_summarize, etc 
 ### REF (docs retreival): https://gpt-index.readthedocs.io/en/latest/examples/index_structs/doc_summary/DocSummary.html
-#####################
+###########################
 print("\033[95m\nQuery engine...\n\033[0m")
 from llama_index.query_engine import RetrieverQueryEngine
 query_engine = RetrieverQueryEngine(
@@ -319,10 +346,13 @@ query_engine = RetrieverQueryEngine(
 play_notification_sound(NotificationType.SUCCESS)
 
 
-#####################
-### Promt time!
-#####################
+##################
+### Prompt time!
+##################
 from typing import Dict, List
+
+prev_prompts = []
+current_index = -1
 
 while True:
     prompt = input("\nEnter prompt: ")
