@@ -134,7 +134,7 @@ def parse_choice_select_answer_fn(
 model_path = "./models/mistral-7b-instruct-v0.1.Q4_K_M.gguf"
 model_embeddings_path = "./sentence-transformers/all-mpnet-base-v2"
 
-data_path = "D:/Git/Unseen/Assets/Code/_Core" #"C:/Users/richd/Desktop/test-rag" #"D:/Git/ebook-GPT-translator-refined"
+data_path = "D:/Git/Unseen/Assets/Code/" #"D:/Git/EscapeRoom3DGitLab/Assets/Scripts" #"C:/Users/richd/Desktop/test-rag" #"D:/Git/ebook-GPT-translator-refined"
 config_llm_path = "./models/Mistral-7B-Instruct-v0.1/config.json" 
 
 # confirm that data_path exists
@@ -191,6 +191,7 @@ else:
     from llama_index.llms import OpenAI
     llm = OpenAI(temperature=0.1, model="gpt-4")
 
+
 ###################################
 ### Embeddings and service context
 ### NOTE FOR LLAMA CPP (GGUF COMPAT): https://gpt-index.readthedocs.io/en/latest/examples/llm/llama_2_llama_cpp.html
@@ -246,8 +247,8 @@ service_context = ServiceContext.from_defaults(
 from llama_index import VectorStoreIndex, SimpleDirectoryReader, DocumentSummaryIndex, StorageContext
 from llama_index.indices.loading import load_index_from_storage
 
-build_new_index = input("\033[95m\nPress N to skip loading index from storage...\n\033[0m")
-if(build_new_index.lower == ""):
+build_new_index = input("\033[95m\nPress R to reimport index from storage...\n\033[0m")
+if(build_new_index.lower() != "r"):
     try:
         storage_context = StorageContext.from_defaults(persist_dir="index")
         doc_summary_index = load_index_from_storage(storage_context)
@@ -330,6 +331,28 @@ else:
 #         print(stack_trace)
 
 
+###################################
+### Conversational memory
+### NOTE NOTE NOTE NOTE : NOT IMPLEMENTED, UNTESTED, UNVERIFIED, UNKNOWN
+###################################
+#from langchain.agents import Tool
+from llama_index.memory import ChatMemoryBuffer
+from langchain.chains.conversation.memory import ConversationBufferWindowMemory
+# Define tools
+#tools = [
+#    Tool(
+#        name = "LlamaIndex",
+#        func=lambda q: str(index.as_query_engine().query(q)),
+#        description="You are a person who saerches codebases and answers questions related to that codebase in a conversational manner.",
+#        return_direct=True
+#    ),
+#]
+conversational_memory = ConversationBufferWindowMemory(memory_key='chat_history', k=5, return_messages=True)# Initialize agent with conversational memory
+#agent_executor = initialize_agent(tools, llm, agent="conversational-react-description", memory=conversational_memory)
+
+
+
+
 ###########################
 ### Set up query engine...
 ### Response/summarization mode can include auto-iterative prompt refinement
@@ -341,6 +364,7 @@ from llama_index.query_engine import RetrieverQueryEngine
 query_engine = RetrieverQueryEngine(
     retriever=retriever,
     response_synthesizer=response_synthesizer
+    #, memory=conversational_memory,
 )
 #query_engine = doc_summary_index.as_query_engine(response_mode=ResponseMode.TREE_SUMMARIZE, use_async=True)
 play_notification_sound(NotificationType.SUCCESS)
