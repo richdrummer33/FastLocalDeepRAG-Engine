@@ -225,8 +225,8 @@ def load_embeddings_model():
     print("\033[95m\nLoading embeddings model...\n\033[0m")
     print_gpu_memory_usage()
 
-    model_kwargs = {'device': 'cuda'} # Possible to use cuda?
-    embed_model = HuggingFaceEmbeddings(model_name=model_embeddings_path) #, model_kwargs=model_kwargs) #device = cuda
+    model_kwargs={"device": "cuda:0"}
+    embed_model = HuggingFaceEmbeddings(model_name=model_embeddings_path, model_kwargs=model_kwargs) #, model_kwargs=model_kwargs) #device = cuda
 
     print("\033[95m\nEmbeddings model loaded!\n\033[0m")
     print_gpu_memory_usage()
@@ -269,7 +269,7 @@ def init_service_context():
 
     service_context = ServiceContext.from_defaults(
         chunk_size=400, # 1024 # 2048 (I think this too large & caused mem errors on ingest)
-        chunk_overlap=40,
+        chunk_overlap=40, # 10%
         llm=llm,
         embed_model=embed_model
     )
