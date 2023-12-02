@@ -6,5 +6,6 @@ for %%p in (%packages%) do (
         echo %%p is installed
     ) || (
         echo %%p is NOT installed
+		pip install %%p
     )
 ) pause

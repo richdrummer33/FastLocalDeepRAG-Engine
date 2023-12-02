@@ -16,13 +16,15 @@ def play_notification_sound(notification_type):
 
 
 print("\033[95m\nLoading Model...\n\033[0m")
-conf = AutoConfig(Config(temperature=0.8, repetition_penalty=1.1, 
-                         batch_size=52, max_new_tokens=2048, 
-                         context_length=2048, gpu_layers=50,
+conf = AutoConfig(Config(temperature=0.7, repetition_penalty=1.1, 
+                         batch_size=52, max_new_tokens=4096, 
+                         context_length=4096, gpu_layers=50,
                          stream=True))
 
-llm = AutoModelForCausalLM.from_pretrained("./models/mistral-7b-instruct-v0.1.Q4_K_M.gguf",
-                                           model_type="mistral", config = conf)
+# mistral-7b-instruct-v0.1.Q4_K_M.gguf"
+# model_type="mistral"
+llm = AutoModelForCausalLM.from_pretrained("./models/orca-2-7b.Q5_K_M.gguf", 
+                                           model_type="llama", config = conf)
 play_notification_sound(NotificationType.SUCCESS)
 print("\033[92m\nModel Loaded!\n\033[0m")
 
@@ -35,12 +37,15 @@ print("\033[92m\nModel Loaded!\n\033[0m")
 #
 # Explore chatbot with memory
 #####################
+system_message = "You are a helpful assistant"
 while True:
     prompt = input("\nEnter prompt: ")
-    mistral_prompt = f"<s>[INST] {prompt} [/INST]"
+
+    # f"<s>[INST] {prompt} [/INST]"
+    mistral_prompt = f"<|im_start|>system\n{system_message}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant"
 
     print("\033[95m\nGenerating output from promt...\n\033[0m")
 
-    for answer in llm(mistral_prompt, temperature=0.8, repetition_penalty=1.1, 
+    for answer in llm(mistral_prompt, temperature=0.7, repetition_penalty=1.1, 
                          batch_size=52, max_new_tokens=2048, stream=True):
         print(answer, end="", flush=True)

@@ -3,20 +3,28 @@ import winsound
 import torch
 import time
 
+import torch.cuda as cuda # for tracking gpu memory usage
+
+# CUDA / cuBLAS check
+print(torch.cuda.is_available())  # Check if CUDA is available
+print(torch.backends.cudnn.enabled)  # Check if cuDNN is enabled, which indirectly implies cuBLAS is working
+
+#####################
+### Fields and Definitions
+#####################
+
+model_path = "./models/mistral-7b-instruct-v0.1.Q4_K_M.gguf"
+model_embeddings_path = "./sentence-transformers/all-mpnet-base-v2"
+data_path = "./data/" # "D:/Git/Unseen/Assets/Code/" # "D:\\Git\\twinny-api" #  #"D:/Git/EscapeRoom3DGitLab/Assets/Scripts" #"C:/Users/richd/Desktop/test-rag" #"D:/Git/ebook-GPT-translator-refined"
+#config_llm_path = "./models/Mistral-7B-Instruct-v0.1/config.json" 
+
 #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 # MISC CLASSES
 #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-# Example Nodes as a knowledge base
-from llama_index.schema import Node
-test_nodes = [
-    Node(text="The Earth revolves around the Sun."),
-    Node(text="The Moon orbits the Earth."),
-    Node(text="Gravity is the force of attraction between two bodies."),
-    Node(text="Photosynthesis is the process by which green plants make their own food."),
-    Node(text="Electricity can be generated from renewable sources such as wind or solar energy.")
-    # ... you can add more nodes as needed
-]
+# print version llama_index
+from llama_index import __version__
+print("llama_index version: " + __version__)
 
 class NotificationType:
     WARNING = "C:\\Windows\\Media\\Windows Exclamation.wav"
@@ -28,6 +36,24 @@ def play_notification_sound(notification_type):
     elif notification_type == NotificationType.SUCCESS:
         sound_path = NotificationType.SUCCESS
     winsound.PlaySound(sound_path, winsound.SND_FILENAME)
+
+def user_select_data_path():
+    global data_path
+    choice = input("\033[95m\nPress 1 to use the default data-path, or 2 to pick one: \n\033[0m")
+
+    if(choice != "1"):
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        data_path = filedialog.askdirectory()
+
+    print("\033[95m\nData path: " + data_path + "\n\033[0m")
+
+# Function to print the current and peak memory usage
+def print_gpu_memory_usage():
+    print("Current GPU Memory Allocated:", torch.cuda.memory_allocated())
+    print("Peak GPU Memory Allocated:", torch.cuda.max_memory_allocated())
 
 import re
 from typing import Tuple, List
@@ -128,15 +154,6 @@ def parse_choice_select_answer_fn(
 # PROGRAM
 #>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-#####################
-### Fields and Definitions
-#####################
-model_path = "./models/mistral-7b-instruct-v0.1.Q4_K_M.gguf"
-model_embeddings_path = "./sentence-transformers/all-mpnet-base-v2"
-
-data_path = "D:/Git/Unseen/Assets/Code/" #"D:/Git/EscapeRoom3DGitLab/Assets/Scripts" #"C:/Users/richd/Desktop/test-rag" #"D:/Git/ebook-GPT-translator-refined"
-config_llm_path = "./models/Mistral-7B-Instruct-v0.1/config.json" 
-
 # confirm that data_path exists
 import os
 if not os.path.exists(data_path):
@@ -154,7 +171,6 @@ SUMMARY_QUERY = (
     Features: Take note of any special features such as Photon RPC calls"""
 )
 
-
 #####################
 ### Load/init the local gguf LLM (via llama cpp)
 #####################
@@ -163,8 +179,9 @@ from llama_index.llms.llama_utils import (
     messages_to_prompt,
     completion_to_prompt,
 )
-print("\033[95m\nLoading Model...\n\033[0m")
 if not use_gpt:
+    print("\033[95m\nLoading LLM model...\n\033[0m")
+    print_gpu_memory_usage()
     llm = LlamaCPP(
         # You can pass in the URL to a GGML model to download it automatically
         model_url=None,
@@ -184,6 +201,8 @@ if not use_gpt:
         completion_to_prompt=completion_to_prompt,
         verbose=True,
     )
+    print("\033[95m\nLLM model Loaded!\n\033[0m")
+    print_gpu_memory_usage()
 else:
     import openai
     import os
@@ -191,21 +210,34 @@ else:
     from llama_index.llms import OpenAI
     llm = OpenAI(temperature=0.1, model="gpt-4")
 
+# press enter to continue in green colored text
+print("\033[92m\nPress enter to continue...\n\033[0m")
 
 ###################################
 ### Embeddings and service context
 ### NOTE FOR LLAMA CPP (GGUF COMPAT): https://gpt-index.readthedocs.io/en/latest/examples/llm/llama_2_llama_cpp.html
 ###################################
 from langchain.embeddings.huggingface import HuggingFaceEmbeddings
-print("\033[95m\nLoading embeddings model...\n\033[0m")
-embed_model = HuggingFaceEmbeddings(model_name=model_embeddings_path)
+embed_model = None
 
+def load_embeddings_model():
+    global embed_model
+    print("\033[95m\nLoading embeddings model...\n\033[0m")
+    print_gpu_memory_usage()
+
+    model_kwargs = {'device': 'cuda'} # Possible to use cuda?
+    embed_model = HuggingFaceEmbeddings(model_name=model_embeddings_path) #, model_kwargs=model_kwargs) #device = cuda
+
+    print("\033[95m\nEmbeddings model loaded!\n\033[0m")
+    print_gpu_memory_usage()
+    
+    # press enter to continue in green colored text
+    print("\033[92m\nPress enter to continue...\n\033[0m")
 
 ##############################
 ### Set things up for indexer
 ### NOTE: https://blog.llamaindex.ai/a-new-document-summary-index-for-llm-powered-qa-systems-9a32ece2f9ec
 ##############################
-print("\033[95m\nIndexing...\n\033[0m")
 from llama_index import (
     SimpleDirectoryReader,
     LLMPredictor, # added for doc summary 
@@ -218,13 +250,6 @@ from llama_index import (
 from llama_index.response_synthesizers import ResponseMode, get_response_synthesizer
 # For synthesizing summaries for the docs https://blog.llamaindex.ai/...
 response_synthesizer = get_response_synthesizer(response_mode=ResponseMode.TREE_SUMMARIZE) # EG. USAGE: response = response_synthesizer.synthesize("query text", nodes=[Node(text="text"), ...])
-### Optional user verifiation of summaries
-# test_query_llm_response = input("\nTest response synth on test data: ")
-# if len(test_query_llm_response) > 0:
-#     response = response_synthesizer.synthesize(
-#        test_query_llm_response, 
-#        nodes=[Node(text="Electricity can be generated from renewable sources such as wind or solar energy")]
-#     )
 
 
 ###########################
@@ -233,13 +258,22 @@ response_synthesizer = get_response_synthesizer(response_mode=ResponseMode.TREE_
 # NOTE: Memory-pool issues on docs ingestion: https://github.com/imartinez/privateGPT/issues/181
 #       Should I also increase LLM context window to avoid? Tradeoffs with performance/batching?
 ###########################
-service_context = ServiceContext.from_defaults(
-    chunk_size=400, # 1024 # 2048 (I think this too large & caused mem errors on ingest)
-    chunk_overlap=40,
-    llm=llm,
-    embed_model=embed_model
-)
-# set_global_service_context(service_context) # Necessary? Maybe not 
+service_context = None
+
+def init_service_context():
+    global service_context
+    global embed_model
+
+    if embed_model is None:
+        load_embeddings_model()
+
+    service_context = ServiceContext.from_defaults(
+        chunk_size=400, # 1024 # 2048 (I think this too large & caused mem errors on ingest)
+        chunk_overlap=40,
+        llm=llm,
+        embed_model=embed_model
+    )
+    # set_global_service_context(service_context) # Necessary? Maybe not 
 
 ###################
 ### Index the docs
@@ -247,38 +281,51 @@ service_context = ServiceContext.from_defaults(
 from llama_index import VectorStoreIndex, SimpleDirectoryReader, DocumentSummaryIndex, StorageContext
 from llama_index.indices.loading import load_index_from_storage
 
-build_new_index = input("\033[95m\nPress R to reimport index from storage...\n\033[0m")
-if(build_new_index.lower() != "r"):
+build_new_index = input("\033[95m\nPress 1 to load stored index. Press 2 to reimport index from storage: \n\033[0m")
+
+# Option 1: Load index from storage
+if(build_new_index.lower() == "1"):
     try:
-        storage_context = StorageContext.from_defaults(persist_dir="index")
-        doc_summary_index = load_index_from_storage(storage_context)
+        # we are going to use the embeddings model to load the index from storage
+        load_embeddings_model()
+        # load the index from storage
+        storage_context = StorageContext.from_defaults(persist_dir="./index")
+        # initialize/instantiate the indexer with the indexed data just fetched from storage
+        doc_summary_index = load_index_from_storage(
+            storage_context,
+            embed_model=embed_model,
+            llm_predictor=LLMPredictor(llm)
+        )
         print("\033[95m\nLoaded index from storage...\n\033[0m")
     except:
         print("\033[95m\nFailed to load index from storage...\n\033[0m")
         build_new_index = None
+
+    # Init service context for the retreiver (llm OR embedding-based cosine similarity) query engine
+    init_service_context()
+
+# Option 2: Build new index
 else:
+    # What folder root to index?
+    user_select_data_path()
+    # Init service context for the indexer AND retreiver (llm OR embedding-based cosine similarity) query engine
+    init_service_context()
     print("\033[95m\nFetch documents...\n\033[0m")
+    # Fetch documents from the data_path
     reader  = SimpleDirectoryReader(data_path, recursive=True, exclude=['*.meta', '*.preset', '*.bnk', '*.wem', '*.fbx', '*.obj', '*.wav', '*.onnx', '*.otf', '*.mat', '*.png', '*.prefab', '*.unity']) # '*.txt', '.json']
     documents = reader.load_data()
     print("\033[95m\nIndexing documents data...\n\033[0m")
+    # Index the documents
     doc_summary_index = DocumentSummaryIndex.from_documents(
         documents,
         service_context=service_context,
         summary_query=SUMMARY_QUERY,
         response_synthesizer=response_synthesizer, # will use response synth to generate llm response to retreived chunks
-        show_progress=True
+        show_progress=True,
+        embed_model=embed_model,
     )
-    doc_summary_index.storage_context.persist("index")  
-
-### Optional user verifiation of summaries
-#doc_id = "_"
-#while len(doc_id) > 0:
-#    doc_id = input("\nEnter doc-ID to print doc summary: ")
-#    try:
-#        summary = doc_summary_index.get_document_summary(doc_id)
-#        print(summary)
-#    except Exception as e:
-#        print("GET DOC SUMMARY FAILED " + str(e))
+    # Persist the index to storage
+    doc_summary_index.storage_context.persist("./index")  
 
 ##########################
 ### Set up docs retreiver
@@ -311,26 +358,6 @@ else:
         service_context=service_context
     )
 
-# The retriever will retrieve a set of relevant nodes for a given index.
-# Optional user verifiation of retreival matching
-# retreival_match = "_"
-# while len(retreival_match) > 0:
-#     retreival_match = input("\nEnter string to test retreival: ")
-#     try:
-#         retrieved_nodes = retriever.retrieve(retreival_match)
-#         try:
-#             print("retrieved_nodes: " + str(len(retrieved_nodes)))
-#             print("score: " + str(retrieved_nodes[0].score))
-#             print("text: " + retrieved_nodes[0].node.get_text()) 
-#         except Exception as e:
-#             print("PRINTING RETREIVED NODES FAILED: " + str(e))
-#     except Exception as e:
-#         print(f"An exception occurred: {e}")
-#         traceback.print_exc()
-#         stack_trace = traceback.format_exc()
-#         print(stack_trace)
-
-
 ###################################
 ### Conversational memory
 ### NOTE NOTE NOTE NOTE : NOT IMPLEMENTED, UNTESTED, UNVERIFIED, UNKNOWN
@@ -338,20 +365,9 @@ else:
 #from langchain.agents import Tool
 from llama_index.memory import ChatMemoryBuffer
 from langchain.chains.conversation.memory import ConversationBufferWindowMemory
-# Define tools
-#tools = [
-#    Tool(
-#        name = "LlamaIndex",
-#        func=lambda q: str(index.as_query_engine().query(q)),
-#        description="You are a person who saerches codebases and answers questions related to that codebase in a conversational manner.",
-#        return_direct=True
-#    ),
-#]
+
 conversational_memory = ConversationBufferWindowMemory(memory_key='chat_history', k=5, return_messages=True)# Initialize agent with conversational memory
 #agent_executor = initialize_agent(tools, llm, agent="conversational-react-description", memory=conversational_memory)
-
-
-
 
 ###########################
 ### Set up query engine...
@@ -370,9 +386,9 @@ query_engine = RetrieverQueryEngine(
 play_notification_sound(NotificationType.SUCCESS)
 
 
-##################
-### Prompt time!
-##################
+# >>>>>>>>>>>>>>>>>>>>>>>>>
+# Prompt time!
+# >>>>>>>>>>>>>>>>>>>>>>>>>
 from typing import Dict, List
 
 prev_prompts = []
@@ -404,3 +420,70 @@ while True:
         print("\nResponse: ")
         print(str(response))
         
+
+
+
+##########################################
+## OLD
+##########################################
+
+# Define tools
+#tools = [
+#    Tool(
+#        name = "LlamaIndex",
+#        func=lambda q: str(index.as_query_engine().query(q)),
+#        description="You are a person who saerches codebases and answers questions related to that codebase in a conversational manner.",
+#        return_direct=True
+#    ),
+#]
+
+### Optional user verifiation of summaries
+# test_query_llm_response = input("\nTest response synth on test data: ")
+# if len(test_query_llm_response) > 0:
+#     response = response_synthesizer.synthesize(
+#        test_query_llm_response, 
+#        nodes=[Node(text="Electricity can be generated from renewable sources such as wind or solar energy")]
+#     )
+
+### Optional user verifiation of summaries
+#doc_id = "_"
+#while len(doc_id) > 0:
+#    doc_id = input("\nEnter doc-ID to print doc summary: ")
+#    try:
+#        summary = doc_summary_index.get_document_summary(doc_id)
+#        print(summary)
+#    except Exception as e:
+#        print("GET DOC SUMMARY FAILED " + str(e))
+
+
+# The retriever will retrieve a set of relevant nodes for a given index.
+# Optional user verifiation of retreival matching
+# retreival_match = "_"
+# while len(retreival_match) > 0:
+#     retreival_match = input("\nEnter string to test retreival: ")
+#     try:
+#         retrieved_nodes = retriever.retrieve(retreival_match)
+#         try:
+#             print("retrieved_nodes: " + str(len(retrieved_nodes)))
+#             print("score: " + str(retrieved_nodes[0].score))
+#             print("text: " + retrieved_nodes[0].node.get_text()) 
+#         except Exception as e:
+#             print("PRINTING RETREIVED NODES FAILED: " + str(e))
+#     except Exception as e:
+#         print(f"An exception occurred: {e}")
+#         traceback.print_exc()
+#         stack_trace = traceback.format_exc()
+#         print(stack_trace)
+
+
+# 
+# Example Nodes as a knowledge base
+# from llama_index.schema import Node
+# test_nodes = [
+#     Node(text="The Earth revolves around the Sun."),
+#     Node(text="The Moon orbits the Earth."),
+#     Node(text="Gravity is the force of attraction between two bodies."),
+#     Node(text="Photosynthesis is the process by which green plants make their own food."),
+#     Node(text="Electricity can be generated from renewable sources such as wind or solar energy.")
+#     # ... you can add more nodes as needed
+# ]# 
