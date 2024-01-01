@@ -1,13 +1,13 @@
 # WORKS!!!
 import winsound
-import torch
+# import torch
 import time
 
 import torch.cuda as cuda # for tracking gpu memory usage
 
 # CUDA / cuBLAS check
-print(torch.cuda.is_available())  # Check if CUDA is available
-print(torch.backends.cudnn.enabled)  # Check if cuDNN is enabled, which indirectly implies cuBLAS is working
+# print(torch.cuda.is_available())  # Check if CUDA is available
+# print(torch.backends.cudnn.enabled)  # Check if cuDNN is enabled, which indirectly implies cuBLAS is working
 
 #####################
 ### Fields and Definitions
@@ -50,10 +50,10 @@ def user_select_data_path():
 
     print("\033[95m\nData path: " + data_path + "\n\033[0m")
 
-# Function to print the current and peak memory usage
-def print_gpu_memory_usage():
-    print("Current GPU Memory Allocated:", torch.cuda.memory_allocated())
-    print("Peak GPU Memory Allocated:", torch.cuda.max_memory_allocated())
+# Function to print the current and peak memory usage (doesnt seem to work)
+# def print_gpu_memory_usage():
+#     print("Current GPU Memory Allocated:", torch.cuda.memory_allocated())
+#     print("Peak GPU Memory Allocated:", torch.cuda.max_memory_allocated())
 
 import re
 from typing import Tuple, List
@@ -227,7 +227,6 @@ def load_embeddings_model():
 
     model_kwargs={"device": "cuda:0"}
     embed_model = HuggingFaceEmbeddings(model_name=model_embeddings_path, model_kwargs=model_kwargs) #, model_kwargs=model_kwargs) #device = cuda
-
     print("\033[95m\nEmbeddings model loaded!\n\033[0m")
     print_gpu_memory_usage()
     
@@ -312,7 +311,7 @@ else:
     init_service_context()
     print("\033[95m\nFetch documents...\n\033[0m")
     # Fetch documents from the data_path
-    reader  = SimpleDirectoryReader(data_path, recursive=True, exclude=['*.meta', '*.preset', '*.bnk', '*.wem', '*.fbx', '*.obj', '*.wav', '*.onnx', '*.otf', '*.mat', '*.png', '*.prefab', '*.unity']) # '*.txt', '.json']
+    reader  = SimpleDirectoryReader(data_path, recursive=True, exclude=['*.meta', '*.preset', '*.bnk', '*.wem', '*.fbx', '*.obj', '*.wav', '*.onnx', '*.otf', '*.mat', '*.png', '*.prefab', '*.unity', '.pyc', '.pyd', '.pyo', '.dll', '.exe', '.o', '.obj', '.a', '.lib', '.so', '*.dylib']) # '*.txt', '.json']
     documents = reader.load_data()
     print("\033[95m\nIndexing documents data...\n\033[0m")
     # Index the documents

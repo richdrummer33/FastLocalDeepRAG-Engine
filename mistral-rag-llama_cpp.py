@@ -1,6 +1,5 @@
 # WORKS!!!
 import winsound
-import torch
 
 #####################################################################
 # Misc classes

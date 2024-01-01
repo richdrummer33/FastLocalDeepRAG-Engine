@@ -1,7 +1,6 @@
 # WORKS!!!
 from ctransformers import AutoModelForCausalLM, AutoConfig, Config
 import winsound
-import torch
 
 class NotificationType:
     WARNING = "C:\\Windows\\Media\\Windows Exclamation.wav"

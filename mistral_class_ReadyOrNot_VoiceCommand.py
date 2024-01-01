@@ -1,61 +1,98 @@
-from ctransformers import AutoModelForCausalLM, AutoConfig, Config
+# [https://python.langchain.com/docs/integrations/providers/ctransformers] from langchain.llms import CTransformers 
+from ctransformers import AutoConfig, Config, AutoModelForCausalLM, AutoTokenizer
+import transformers
+from transformers import pipeline
 import winsound
 import time
 import socket
 
+# TODO NEW INSTALLS:
+#   [https://local-llm-function-calling.readthedocs.io/en/latest/generation.html#llama-cpp]
+#   pip install local-llm-function-calling[llama-cpp]
+
+# TODO:
+#   - Whisper assistant launches this script when the window, the active window is ready or not and calls commands when that's the active window.
+#   - Implement RAG for getting commands from a doc, based on (split) voice commands - prevents spanning the large language model with a full command list every prompt.
+#   - Talkback to the user with sfx if the command is or is not recognized.
+#   - Fine tune the model behavior in HuggingFace website.
 
 
 class NotificationType:
     WARNING = "C:\Windows\Media\Windows Exclamation.wav"
     SUCCESS = "success.wav"
 
-class MistralChatbot:
+# SwatGameVoiceCommandExecutor is a class that uses the Mistral AI model to parse a given (transcribed) voice command into sequence of keystrokes (instead of the player manually clicking and keystroking) to execute commands for the game Ready or Not
+class SwatGameVoiceCommandExecutor:
+    default_instruction = """Please convert the following plain text input into a list of comma-separated values representing keystroke commands based on these command options:
 
-    # keywords 
-    do_code = "computer"
-    code_instruction = "You are a helpful assistant. If I ask you explicitly to write code, then just give me the script without commentary, but you can put comments in the code where you feel it necessarry."
-    default_instruction = "Format the message/text as a user would when typing it as an email or a slack message - clearly and concisely."
+    DOOR commands [MAIN MENU]:
+        [1] Stack Up (see STACK UP [SUB MENU 1] below)
+        [2] Open (see OPEN [SUB MENU 2] below)
+
+    STACK UP commands [SUB MENU 1]:
+        [1] Split
+        [2] Left
+        [3] Right
+        [4] Auto
     
+    OPEN commands [SUB MENU 2]:
+        [1] Clear
+        [2] Clear with Flashbang
+        [3] Clear with Stinger
+        [4] Clear with CS Gas
+        [5] Clear with Launcher
+        [6] Clear with Leader"""
 
-    def __init__(self):
-        self.client = None
-        self.sent_first_message = False
-        # [NOTE] Prompt refinement: https://chat.openai.com/share/0184113f-6c94-4ea5-876f-dfc410d141cd
-        # """
-        # You are an AI assistant tasked with processing speech-to-text VOICE TRANSCRIPTS. Your role is twofold:
-        #     1. If the transcript *STARTS* with the keyword: "Computer": Perform whatever action is requested in the transcript.
-        #     2. If the transcript *DOES NOT* start with the keyword: "Computer": Reformat and adjust the transcript's writing for clarity and context relevance. This includes adding carriage returns, punctuation, bullet points, and correcting any misinterpreted words, as seems fit.
-        # Do not respond with commentary or queries/clarification. *Only respond with the requested code or formatted transcript*.
-        # """
+    # Scan Sub-menu:
+    #     [1] Slide
+    #     [2] Pie
+    #     [3] Peek
 
-        #"""You are to correct any issus you see in this speech-to-text transcription. 
-#
-        #                            Common issues include:
-        #                            - Improper punctuation
-        #                                e.g. (requires correction) PROVIDED TRANSCRIPT: "Hi john, I'm doing the dishes... right now and I'm going to go to the store later.", but the '...' does not fit. This would be an appropriate correction: "Hi John, I'm doing the dishes right now, and I'm going to go to the store later."
-        #                                e.g. (does not require correction) Transcription: "Hi John... I'm doing the dishes right now, and I'm going to go to the store later.", and the ... implies a thoughtful pause
-        #                            - Contextual punctuation, like a period where an excaimation point should be for emphasis
-        #                                e.g. Transcription: "Holy crap that is wild.", but it's contextually beneficial to say "Holy crap that is wild!"
-        #                            - Incorrectly interpreted words
-        #                                e.g. Transcription: "I ran across the lawn and jumped into the pile of heaves", but it's far more likely that the speaker said "I ran across the lawn and jumped into the pile of leaves"
-#
-        #                            If you see issues, respond with the corrected transcription.
-        #                            Only respond with the corrected transcription - no commentary.
-        #                            If you see no issues, respond with "No issues detected!".
-        #                            """
-
+    def load_model(self):
         print("\033[95m\nLoading Model...\n\033[0m")
-        self.conf = AutoConfig(Config(temperature=0.2, repetition_penalty=1.1, 
+        self.conf = AutoConfig(Config(temperature=0, repetition_penalty=1.1, 
                          batch_size=52, max_new_tokens=4096, 
                          context_length=4096, gpu_layers=50,
                          stream=False))
-        # mistral-7b-instruct-v0.1.Q4_K_M.gguf"
         # model_type="mistral"
-        self.llm = AutoModelForCausalLM.from_pretrained("D:\\Data\\LLM-models\\models\\orca-2-7b.Q5_K_M.gguf",
+        # mistral-7b-instruct-v0.1.Q4_K_M.gguf"
+        # CONSIDER [https://python.langchain.com/docs/integrations/providers/ctransformers]
+        #   llm = Ctranformers(AutoModelForCausalLM.from_pretrained("D:\\Data\\LLM-models\\models\\orca-2-7b.Q5_K_M.gguf", 
+        self.llm = AutoModelForCausalLM.from_pretrained("D:\\Data\\LLM-models\\models\\orca-2-7b.Q5_K_M.gguf", 
                                            model_type="llama", config=self.conf)
 
         self.play_notification_sound(NotificationType.SUCCESS)
         print("\033[92m\nModel Loaded!\n\033[0m")
+
+
+    def load_pipeline(self):
+        print("\033[95m\nLoading Pipeline...\n\033[0m")
+        
+        tokenizer = AutoTokenizer.from_pretrained("D:\\Data\\LLM-models\\models\\orca-2-7b.Q5_K_M.gguf")
+
+        pipe = pipeline(
+            model=self.llm,
+            tokenizer=tokenizer,
+            task="text-generation",
+            return_full_text=True, 
+            temperature=0,  # 'randomness' of outputs, 0.0 is the min and 1.0 the max
+            max_new_tokens=64,  # mex number of tokens to generate in the output
+            repetition_penalty=1.1  # without this output begins repeating
+        )
+
+        print(pipe("AI is going to", max_new_tokens=35))
+        pipe("AI is going to", max_new_tokens=35, do_sample=True, temperature=0, repetition_penalty=1.1)
+
+    
+    def __init__(self):
+        self.client = None
+        self.sent_first_message = False
+        # [NOTE] Prompt refinement: https://chat.openai.com/share/0184113f-6c94-4ea5-876f-dfc410d141cd
+
+        self.load_model()
+        self.load_pipeline()
+
+
 
     # ********************************************************************************************************************
     #

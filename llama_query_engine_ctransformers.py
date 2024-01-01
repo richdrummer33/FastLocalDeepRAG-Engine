@@ -98,7 +98,6 @@ def play_notification_sound(notification_type):
 # "Python bindings for the Transformer models implemented in C/C++ using GGML library" (https://github.com/marella/ctransformers)
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig # TextStreamer (not avail in ctransformers, but is avail in transformers)\
 from transformers import pipeline
-import torch
 import time # sleep is the best medicine
 device = "cuda" # the device to load the model onto
 

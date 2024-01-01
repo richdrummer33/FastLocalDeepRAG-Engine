@@ -1,0 +1,2 @@
+Python 3.9.18
+updated to 3.11 for local-llm-function-calling (2024-01-01)

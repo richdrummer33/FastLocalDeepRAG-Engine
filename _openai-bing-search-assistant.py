@@ -75,7 +75,7 @@ load_dotenv()
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 # NOTE: OLD BING API fields
-# subscription_key = "79f43664b4a343e38b4017f758ee80f3"
+subscription_key = "79f43664b4a343e38b4017f758ee80f3"
 # search_client = WebSearchClient(endpoint="https://api.bing.microsoft.com/", credentials=CognitiveServicesCredentials(subscription_key))
 
 # NOTE: NEW BING API fields (API migrated to azure marketplace)
