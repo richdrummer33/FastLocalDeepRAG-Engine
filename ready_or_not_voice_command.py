@@ -42,36 +42,60 @@ def play_notification_sound(self, notification_type):
 
 system_message = """
     Assistant that converts transcribed speech into a list of tactical video-game commands, based solely on the command options below.
-    Find the closest matching command sequence in all cases - e.g. "bang and clear" means "clear with flashbang", or "move your asses to that door ya dinguses" means "stack up auto".
-    Reply TERMINATE when done.
+    Find the command sequence that most closely reflects the intent of the transcribed speech - e.g. "bang and clear" means "clear with flashbang", or "move your asses to that door ya dinguses" likely means "stack up", then "auto".
+    Command sequences can only transition DOWN the heirarchy. Once a subcommand is executed, the next command sequence must start from the top, e.g. "stack up", "auto", "open", "clear with flashbang" IS valid, but "stack up", "open", where "clear with flashbang" is NOT valid.
     """
 
 game_commands = """
-    # NOTE: No two of these commands can be executed at once - e.g. you cannot 'stack up' and then 'open' a door in the same command sequence.
+    # NOTE: No two of these commands can be executed at once - e.g., you cannot 'Stack Up' and then 'Open' a door in the same command sequence.
     DOOR commands [MAIN MENU]:
-        1 Stack Up (INFO: sub-commands in 'STACK UP [SUB MENU 1]', below)
-        2 Open (INFO: sub-commands in 'OPEN [SUB MENU 2]', below)
+        Stack Up (INFO: sub-commands in 'STACK UP [SUB MENU 1]', below)
+        Open (INFO: sub-commands in 'OPEN [SUB MENU 2]', below)
+        Breach (INFO: sub-commands in 'BREACH [SUB MENU 3]', below)
+        Scan (INFO: sub-commands in 'SCAN [SUB MENU 4]', below)
 
     # NOTE: This sub-menu is only available after selecting the 'Stack Up' command from [MAIN MENU]
     STACK UP commands [SUB MENU 1]:
-        1 Split
-        2 Left
-        3 Right
-        4 Auto
-    
-    # NOTE: This sub-menu is only available after selecting the 'Open' command from [MAIN MENU]
+        Split
+        Left
+        Right
+        Auto
+
+    # NOTE: only available after selecting the 'Open' command from [MAIN MENU]
     OPEN commands [SUB MENU 2]:
-        1 Clear
-        2 Clear with Flashbang
-        3 Clear with Stinger
-        4 Clear with CS Gas
-        5 Clear with Launcher
-        6 Clear with Leader"""
-    
-        # SCAN commands [SUB MENU]:
-        #     [1] Slide
-        #     [2] Pie
-        #     [3] Peek
+        Clear
+        Clear with Flashbang
+        Clear with Stinger
+        Clear with CS Gas
+        Clear with Launcher
+        Clear with Leader
+
+    # NOTE: only available after selecting the 'Breach' command from [MAIN MENU]
+    BREACH commands [SUB MENU 3]:
+        Kick
+        Shotgun
+        C2
+
+    SCAN commands [SUB MENU 4]:
+        [1] Slide
+        [2] Pie
+        [3] Peek
+
+    STANDARD commands:
+        Move To
+        Fall In
+        Cover
+
+    RESTRAIN & REPORT commands:
+        Restrain
+        Move To
+        Fall In
+        Cover
+        Deploy
+
+    COLLECT EVIDENCE commands:
+        Collect Evidence
+    """
 
 import os
 # Get from env var
@@ -106,7 +130,7 @@ user_proxy = autogen.UserProxyAgent(
     max_consecutive_auto_reply=10,
     code_execution_config={"work_dir": "web"},
     llm_config=llm_config,
-    system_message="Assistant that ensures the command list provided by your agent is correct - and when correct, executes the keystrokes. The command list is below. Reply TERMINATE when done. \n\n" + game_commands
+    system_message="Assistant that ensures the command list provided by your agent is correct - and when correct, executes them. Reply TERMINATE once they are executed. The command list is below.\n\n" + game_commands
 )
 
 
@@ -114,50 +138,136 @@ user_proxy = autogen.UserProxyAgent(
 ## Commands
 ##############################################################################################################
 
-class CommandNode:
-    def __init__(self, name, sub_commands=None, default_sub_command=None):
+from typing import List, Tuple, Optional
+from fuzzywuzzy import process
+
+class Command:
+    def __init__(self, name, key, sub_commands=None):
         self.name = name
+        self.key = key
         self.sub_commands = sub_commands or {}
-        self.default_sub_command = default_sub_command
 
-    def validate(self, command):
-        if command in self.sub_commands:
-            return True, None
-        elif self.default_sub_command:
-            return True, f"Default sub-command '{self.default_sub_command}' selected for '{self.name}'."
-        return False, f"Unrecognized sub-command '{command}' for '{self.name}'."
+# This structure is called a "tree" data structure
+commands = {
+    "door": {
+        "stack_up": Command("Stack Up", "1", sub_commands={
+            "split": Command("Split", "1"),
+            "left": Command("Left", "2"),
+            "right": Command("Right", "3"),
+            "auto": Command("Auto", "4"),
+        }),
+        "open": Command("Open", "2", sub_commands={
+            "clear": Command("Clear", "1"),
+            "clear_with_flashbang": Command("Clear with Flashbang", "2"),
+            "clear_with_stinger": Command("Clear with Stinger", "3"),
+            "clear_with_cs_gas": Command("Clear with CS Gas", "4"),
+            "clear_with_launcher": Command("Clear with Launcher", "5"),
+            "clear_with_leader": Command("Clear with Leader", "6"),
+        }),
+        "breach": Command("Breach", "3", sub_commands={
+            "kick": Command("Kick", "1"),
+            "shotgun": Command("Shotgun", "2"),
+            "c2": Command("C2", "3"),
+        }),
+        "scan": Command("Scan", "4", sub_commands={
+            "slide": Command("Slide", "1"),
+            "pie": Command("Pie", "2"),
+            "peek": Command("Peek", "3"),
+        }),
+    },
+    "standard": {
+        "move_to": Command("Move To", "1"),
+        "fall_in": Command("Fall In", "2"),
+        "cover": Command("Cover", "3"),
+    },
+    "restrain_and_report": {
+        "restrain": Command("Restrain", "1"),
+        "move_to": Command("Move To", "2"),  # Duplicate keys may cause confusion
+        "fall_in": Command("Fall In", "3"),  # Duplicate keys may cause confusion
+        "cover": Command("Cover", "4"),      # Duplicate keys may cause confusion
+        "deploy": Command("Deploy", "5"),
+    },
+    "collect_evidence": {
+        "collect_evidence": Command("Collect Evidence", "1"),
+    },
+}
 
-
-class CommandTree:
+class CommandProcessor:
     def __init__(self):
-        self.commands = {
-            "door": CommandNode("door", {
-                "stack up": CommandNode("stack up", {
-                    "split": "1", "left": "2", "right": "3", "auto": "4"
-                }, default_sub_command="auto"),
-                "open": CommandNode("open", {
-                    "clear": "1", "clear with flashbang": "2", "clear with stinger": "3", 
-                    "clear with cs gas": "4", "clear with launcher": "5", "clear with leader": "6"
-                }, default_sub_command="clear")
-            })
-        }
+        self.commands = commands
         self.last_command = None
-    
-    def validate_commands(self, command_sequence):
-        for command in command_sequence:
-            parts = command.lower().split(maxsplit=1)
-            main_command, sub_command = parts if len(parts) > 1 else (parts[0], None)
 
-            if main_command in self.commands:
-                self.last_command = self.commands[main_command]
-            elif self.last_command and sub_command:
-                valid, error_message = self.last_command.validate(sub_command)
-                if not valid:
-                    return False, error_message
+    def validate_commands(self, command_sequence: List[str]) -> Tuple[bool, Optional[str]]:
+
+        # This is the list of valid main commands (heirarchy level 0)
+        print(f"?????valid_main_commands?????")
+        valid_main_commands = set()
+        for category in self.commands.values():
+            for cmd in category.values():
+                valid_main_commands.add(cmd.name.lower())
+
+        ### Validate command sequence ###
+        for command_str in command_sequence:
+
+            # Ensure case-insensitive comparison
+            print(f"?????command_str.lower?????")
+            command_str = command_str.lower()  
+
+            print(f"?????command_str in valid_main_commands?????")
+            # Check if the entire command string is a main command
+            if command_str in valid_main_commands:
+                self.last_command = command_str
+
+            # If not, it should be a sub-command under the last main command
+            elif self.last_command:
+                print(f"?????self.last_command?????")  
+                sub_commands = self.commands[self.last_command]
+                if command_str not in sub_commands:
+                    return False, f"The command '{command_str}' is not a valid sub-command after '{self.last_command}'."
+                self.last_command = command_str
+
+            # If there was no valid command at all, it's an error
             else:
-                return False, f"Command '{command}' is out of order or unrecognized."
+                print(f"?????command_str?????")
+                try:
+                    closest_match = self.fuzzy_match_command(command_str, self.last_command)
+                    if closest_match:
+                        return False, f"The command '{command_str}' is not recognized. Did you mean '{closest_match}'?"
+                except:
+                    return False, f"The command '{command_str}' is not recognized."
+                
+                return False, f"The command '{command_str}' is not recognized."
 
-        return True, "All commands are valid."
+        return True, "Commands executed successfully. COMMANDS: " + str(command_sequence)
+
+    # Find the closest matching command in the menu node and returns it if over a threshold
+    def fuzzy_match_command(input_command, last_command):
+
+        # Escape if no last valid command
+        if last_command is None:
+            return None
+        
+        # Get the sub-commands of the last main command
+        context_commands = commands
+        if last_command:
+            context_commands = commands.get(last_command, {}).sub_commands
+
+        # Flatten the context command names for fuzzy matching
+        print(f"?????context_command_name?????")
+        context_command_names = [cmd.name.lower() for cmd in context_commands[last_command].sub_commands.values()]
+        print(f"(((((context_command_name)))))))")
+
+
+        # Use fuzzy matching to find the closest command
+        closest_match, score = process.extractOne(input_command.lower(), context_command_names)
+        
+        # Define a match score threshold
+        threshold = 70
+        if score >= threshold:
+            return closest_match
+        
+        return None
+
 
 ##############################################################################################################
 ## Class
@@ -194,8 +304,6 @@ class CommandValidationResult(BaseModel):
 
 # Define the function to be called by the user proxy
 from IPython import get_ipython
-# from typing_extensions import Annotated
-last_main_command = None
 
 @user_proxy.register_for_execution(name="validate_commands")
 @command_interpreter_bot.register_for_llm(name="validate_commands", description="Validates game voice commands.")
@@ -207,8 +315,9 @@ def validate_commands(commands: Annotated[List[str], "A list of game voice comma
     """
     print("\033[95m\nValidating commands...\n\033[0m")
 
-    command_tree = CommandTree()
+    command_tree = CommandProcessor()
     is_valid, message = command_tree.validate_commands(commands)
+    print(f"~~ Validation result: {is_valid}, {message} ~~")
 
     if not is_valid:
         print(f"\033[91m{message}\n\033[0m")
@@ -222,39 +331,36 @@ def validate_commands(commands: Annotated[List[str], "A list of game voice comma
 import keyboard as kb
 import time
 
-@user_proxy.register_for_execution(name="execute_keystrokes")
-@command_interpreter_bot.register_for_llm(name="execute_keystrokes", description="Executes game voice commands.")
-def execute_keystrokes(string_commands_sequence: Annotated[List[str], "A list of game voice commands that result in an NPC action."]) -> CommandValidationResult:
-    print ("\033[95m\n!!!!!!!!!!Executing keystrokes...\n\033[0m")
+@user_proxy.register_for_execution(name="execute_commands")
+@command_interpreter_bot.register_for_llm(name="execute_commands", description="Executes game voice commands.")
+def execute_commands(string_commands_sequence: Annotated[List[str], "A list of voice-commands that result in a singular instruction to an NPC(s) in-game."]) -> CommandValidationResult:
+    
+    # log the LLM eval time
     duration = time.time() - current_time
-    print ("\033[92m\nDone in ", duration, " seconds!\n\033[0m")
+    print ("\033[95m\n!!!!!!!!!!Executing keystrokes. Done in [", duration, "] seconds!\n\033[0m")
 
-    # Command mappings
-    main_menu_commands = {"stack up": "1", "open": "2"}
-    stack_up_sub_commands = {"split": "1", "left": "2", "right": "3", "auto": "4"}
-    open_sub_commands = {"clear": "1", "clear with flashbang": "2", "clear with stinger": "3", 
-                         "clear with cs gas": "4", "clear with launcher": "5", "clear with leader": "6"}
+    # Flatten the list of Command objects from the commands dict, including sub-commands
+    commands_list_flattened = []
+    for category in commands.values():
+        for cmd in category.values():
+            commands_list_flattened.append(cmd)
+            commands_list_flattened.extend(cmd.sub_commands.values())
 
-    last_main_command = None
+    for input_command in string_commands_sequence:
+        input_command_lower = input_command.lower()
 
-    for command in string_commands_sequence:
-        command = command.lower()  # Ensure case-insensitivity
-        keystroke = None
+        command_obj = next((cmd for cmd in commands_list_flattened if cmd.name.lower() == input_command_lower), None)
 
-        if command in main_menu_commands:
-            keystroke = main_menu_commands[command]
-            last_main_command = command
-        elif last_main_command:
-            sub_commands = stack_up_sub_commands if last_main_command == "stack up" else open_sub_commands
-            if command in sub_commands:
-                keystroke = sub_commands[command]
-
-        if keystroke:
-            # Execute the keystroke using kb module
-            print ("\033[95m\n**Executing keystroke** ", keystroke, "\n\033[0m")
-            kb.press_and_release(keystroke)
-            time.sleep(0.5)  # Short delay between keystrokes
-
+        if not command_obj:
+            print("\033[91m\nInvalid command: '{input_command}'.\n\033[0m")
+            return False, f"Invalid command: '{input_command}'."
+        
+        # It's good! Execute the command
+        keystroke = command_obj.key
+        # Execute the keystroke using kb module
+        print ("\033[95m\n**Executing keystroke** ", keystroke, "\n\033[0m")
+        kb.press_and_release(keystroke)
+        time.sleep(0.5)
 
     # !!! WE ARE DONE - RESET THE AGENTS !!!
     user_proxy.reset()
@@ -262,14 +368,6 @@ def execute_keystrokes(string_commands_sequence: Annotated[List[str], "A list of
 
     return True, "Commands executed successfully! Please TERMINATE."
 
-
-# function that takes in a list of commands and uses kb to perform the keystrokes
-def get_keystrokes(string_commands_sequence):
-    print ("\033[95m\n!!!!!!!!!!Getting keystrokes...\n\033[0m")
-
-    # loop through the list of commands and perform the keystrokes
-    for command in string_commands_sequence:
-        print ("\033[95m\n!!!!!!!!!!Performing keystrokes for command: ", command, "\n\033[0m")
         
 
 # ********************************************************************************************************************
