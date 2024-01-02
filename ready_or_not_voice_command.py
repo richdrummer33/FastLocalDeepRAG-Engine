@@ -42,19 +42,21 @@ def play_notification_sound(self, notification_type):
 
 system_message = """
     Assistant that converts transcribed speech into a list of tactical video-game commands, based solely on the command options below.
-    Find the command sequence that most closely reflects the intent of the transcribed speech - e.g. "bang and clear" means "clear with flashbang", or "move your asses to that door ya dinguses" likely means "stack up", then "auto".
-    Command sequences can only transition DOWN the heirarchy. Once a subcommand is executed, the next command sequence must start from the top, e.g. "stack up", "auto", "open", "clear with flashbang" IS valid, but "stack up", "open", where "clear with flashbang" is NOT valid.
+    Firstly, break down the plain-english command into summary form to suite SWAT lingo. 
+    The, form a command sequence that reflects the intent of the plain-english command(s)
+    examples:    
+            "bang and clear it" means ["open", "clear with flashbang"]
+            "move your asses to that door ya dinguses" likely means ["stack up", "auto"]. 
+            "stack up and launch it" means ["stack up", "auto", "open", "clear with launcher"] (auto since it's not specified).
+    Longer sentences *does not* necessarily mean more commands! The user could be long winded.
+    Command sequences can only transition DOWN the heirarchy - to execute an *action* command. Once an *action* command is completed, the next command sequence must start from the top: e.g. ["stack up", "auto", "open", "clear with flashbang"] *is* valid, but ["stack up", "open", where "clear with flashbang"] is *not* valid.
+    Most sequences are 2, generally no longer than 4 commands.
     """
 
 game_commands = """
-    # NOTE: No two of these commands can be executed at once - e.g., you cannot 'Stack Up' and then 'Open' a door in the same command sequence.
-    DOOR commands [MAIN MENU]:
-        Stack Up (INFO: sub-commands in 'STACK UP [SUB MENU 1]', below)
-        Open (INFO: sub-commands in 'OPEN [SUB MENU 2]', below)
-        Breach (INFO: sub-commands in 'BREACH [SUB MENU 3]', below)
-        Scan (INFO: sub-commands in 'SCAN [SUB MENU 4]', below)
 
     # NOTE: This sub-menu is only available after selecting the 'Stack Up' command from [MAIN MENU]
+    # CONTEXT: Action commands, used for moving to DOORS
     STACK UP commands [SUB MENU 1]:
         Split
         Left
@@ -62,6 +64,7 @@ game_commands = """
         Auto
 
     # NOTE: only available after selecting the 'Open' command from [MAIN MENU]
+    # CONTEXT: Action commands, used for interaction with DOORS
     OPEN commands [SUB MENU 2]:
         Clear
         Clear with Flashbang
@@ -71,30 +74,31 @@ game_commands = """
         Clear with Leader
 
     # NOTE: only available after selecting the 'Breach' command from [MAIN MENU]
+    # CONTEXT: Action commands, used for forceful interaction with DOORS
     BREACH commands [SUB MENU 3]:
         Kick
         Shotgun
         C2
 
+    # CONTEXT: Action commands
     SCAN commands [SUB MENU 4]:
-        [1] Slide
-        [2] Pie
-        [3] Peek
+        Slide
+        Pie
+        Peek
 
+    # CONTEXT: Action commands
     STANDARD commands:
         Move To
         Fall In
         Cover
 
+    # CONTEXT: Action commands
     RESTRAIN & REPORT commands:
         Restrain
         Move To
         Fall In
         Cover
         Deploy
-
-    COLLECT EVIDENCE commands:
-        Collect Evidence
     """
 
 import os
@@ -112,9 +116,9 @@ config_list= [
 
 llm_config={
     #"request_timeout": 600,
-    "seed": 42, # 42
+    "seed": 40, # 42
     "config_list": config_list,
-    "temperature": 0.2 # 0.2
+    "temperature": 0.3 # 0.2
 }
 
 command_interpreter_bot = autogen.AssistantAgent(
@@ -130,8 +134,9 @@ user_proxy = autogen.UserProxyAgent(
     max_consecutive_auto_reply=10,
     code_execution_config={"work_dir": "web"},
     llm_config=llm_config,
-    system_message="Assistant that ensures the command list provided by your agent is correct - and when correct, executes them. Reply TERMINATE once they are executed. The command list is below.\n\n" + game_commands
+    system_message="Ensure the Assistant provides a correct list of commands from that summary - and when correct, execute them. DO NOT suggest executing commands unless you've validated them. Reply TERMINATE once they are executed. The command list is below.\n\n" + game_commands
 )
+
 
 
 ##############################################################################################################
@@ -360,7 +365,7 @@ def execute_commands(string_commands_sequence: Annotated[List[str], "A list of v
         # Execute the keystroke using kb module
         print ("\033[95m\n**Executing keystroke** ", keystroke, "\n\033[0m")
         kb.press_and_release(keystroke)
-        time.sleep(0.5)
+        time.sleep(0.15)
 
     # !!! WE ARE DONE - RESET THE AGENTS !!!
     user_proxy.reset()
@@ -368,7 +373,6 @@ def execute_commands(string_commands_sequence: Annotated[List[str], "A list of v
 
     return True, "Commands executed successfully! Please TERMINATE."
 
-        
 
 # ********************************************************************************************************************
 #  TODO: Use functionary to determine the mode to use (e.g. write code, format text, etc.)
