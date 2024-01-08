@@ -6,7 +6,7 @@ import winsound
 import time
 import socket
 import autogen
-from openai import OpenAI
+from screen_reader import ScreenReader
 
 # TODO NEW INSTALLS:
 #   [https://local-llm-function-calling.readthedocs.io/en/latest/generation.html#llama-cpp]
@@ -25,7 +25,10 @@ from openai import OpenAI
 #   - Consider batch GPU inference [https://python.langchain.com/docs/integrations/llms/huggingface_pipelines]
 #   ###########################################################################################################
 
-
+##############################################################################################################
+## 💾 COMMANDS REFERENCE 💾
+## https://veterans-gaming.com/semlerpdx-avcs/profiles/commref/ron91.html/
+##############################################################################################################
 
 ##############################################################################################################
 ## Defs & Misc
@@ -41,14 +44,17 @@ def play_notification_sound(self, notification_type):
     winsound.PlaySound(sound_path, winsound.SND_FILENAME)
 
 system_message = """
-    Assistant that converts transcribed speech into a list of tactical video-game commands, based solely on the command options below.
-    Firstly, break down the plain-english command into summary form to suite SWAT lingo. 
-    The, form a command sequence that reflects the intent of the plain-english command(s)
+    Assistant that converts transcribed speech into tactical video-game instructions, based solely on the instruction options below.
+    Assistant performs the video-game instructions that execute the intent of the plain-english command (video game command for NPC SWAT officers)
+    
+    {game_commands}
+
     examples:    
-            "bang and clear it" means ["open", "clear with flashbang"]
-            "move your asses to that door ya dinguses" likely means ["stack up", "auto"]. 
-            "stack up and launch it" means ["stack up", "auto", "open", "clear with launcher"] (auto since it's not specified).
-    Longer sentences *does not* necessarily mean more commands! The user could be long winded.
+            If the transcription is "bang and clear it", that means instructions: "open", then "clear with flashbang"
+            If the transcription is "move your asses to that door ya dinguses" likely means instructions: "stack up", then "auto"
+            If the transcription is "stack up and launcher it", that means instructions "stack up", "auto", "open", then "clear with launcher" (auto since it's not specified).
+    
+    Longer sentences *do not* necessarily mean more commands! The user could be long-winded.
     Command sequences can only transition DOWN the heirarchy - to execute an *action* command. Once an *action* command is completed, the next command sequence must start from the top: e.g. ["stack up", "auto", "open", "clear with flashbang"] *is* valid, but ["stack up", "open", where "clear with flashbang"] is *not* valid.
     Most sequences are 2, generally no longer than 4 commands.
     """
@@ -56,16 +62,16 @@ system_message = """
 game_commands = """
 
     # NOTE: This sub-menu is only available after selecting the 'Stack Up' command from [MAIN MENU]
-    # CONTEXT: Action commands, used for moving to DOORS
-    STACK UP commands [SUB MENU 1]:
+    # CONTEXT: Action instructions, used for moving to DOORS
+    STACK UP instructions [SUB MENU 1]:
         Split
         Left
         Right
         Auto
 
     # NOTE: only available after selecting the 'Open' command from [MAIN MENU]
-    # CONTEXT: Action commands, used for interaction with DOORS
-    OPEN commands [SUB MENU 2]:
+    # CONTEXT: Action instructions, used for interaction with DOORS
+    OPEN instructions [SUB MENU 2]:
         Clear
         Clear with Flashbang
         Clear with Stinger
@@ -74,26 +80,26 @@ game_commands = """
         Clear with Leader
 
     # NOTE: only available after selecting the 'Breach' command from [MAIN MENU]
-    # CONTEXT: Action commands, used for forceful interaction with DOORS
-    BREACH commands [SUB MENU 3]:
+    # CONTEXT: Action instructions, used for forceful interaction with DOORS
+    BREACH instruction [SUB MENU 3]:
         Kick
         Shotgun
         C2
 
-    # CONTEXT: Action commands
-    SCAN commands [SUB MENU 4]:
+    # CONTEXT: Action instructions
+    SCAN instruction [SUB MENU 4]:
         Slide
         Pie
         Peek
 
-    # CONTEXT: Action commands
-    STANDARD commands:
+    # CONTEXT: Action instruction
+    STANDARD instruction:
         Move To
         Fall In
         Cover
 
-    # CONTEXT: Action commands
-    RESTRAIN & REPORT commands:
+    # CONTEXT: Action instructions
+    RESTRAIN & REPORT instructions:
         Restrain
         Move To
         Fall In
@@ -123,7 +129,7 @@ llm_config={
 
 command_interpreter_bot = autogen.AssistantAgent(
     name="Command Interpreter",
-    system_message=system_message + "\n\n" + game_commands,
+    system_message=system_message #  + "\n\n" + game_commands,
     llm_config=llm_config,
 )
 
@@ -245,6 +251,9 @@ class CommandProcessor:
 
         return True, "Commands executed successfully. COMMANDS: " + str(command_sequence)
 
+    def validate_single_command(self, command_str: str) -> Tuple[bool, Optional[str]]:
+        return self.validate_commands([command_str])
+
     # Find the closest matching command in the menu node and returns it if over a threshold
     def fuzzy_match_command(input_command, last_command):
 
@@ -307,71 +316,110 @@ class CommandValidationResult(BaseModel):
     isValid: bool
     message: str
 
+# define return type for list of commands on screen
+class AvailableCommands(BaseModel):
+    isValid: bool
+    commands: List[str]
+
 # Define the function to be called by the user proxy
 from IPython import get_ipython
 
-@user_proxy.register_for_execution(name="validate_commands")
-@command_interpreter_bot.register_for_llm(name="validate_commands", description="Validates game voice commands.")
-def validate_commands(commands: Annotated[List[str], "A list of game voice commands that result in an NPC action."]) -> CommandValidationResult:
-    """
-    Validates a list of commands against the defined menu structure,
-    ensuring sub-menu commands follow the corresponding main menu commands.
-    Returns a tuple (isValid, message).
-    """
-    print("\033[95m\nValidating commands...\n\033[0m")
+available_commands = None
 
-    command_tree = CommandProcessor()
-    is_valid, message = command_tree.validate_commands(commands)
-    print(f"~~ Validation result: {is_valid}, {message} ~~")
+@user_proxy.register_for_execution(name="check_avail_commands")
+@command_interpreter_bot.register_for_llm(name="check_avail_commands", description="What commands are up on screen, ready for execution *if any*.")
+def check_avail_commands() -> AvailableCommands:
+    
+    # finds the commands on screen, matches them to the note in the tree of commands in CommandProcessor, and returns the list of commands
+    print("\033[95m\nChecking available commands...\n\033[0m")
+    global available_commands
+    available_commands = None # reset
+    
+    #wait for the commands to be available
+    while available_commands is None:
 
-    if not is_valid:
-        print(f"\033[91m{message}\n\033[0m")
-        return False, message
+        time.sleep(0.33)
 
-    print("\033[92mAll commands are valid!\n\033[0m")
-    return True, "All commands are valid."
+        # ocr
+        screen_reader = ScreenReader() 
+        _, screen_text = screen_reader.read_screen(False, False)
+        print("$$$$$$$grabbed screen text")
+
+        if not screen_text: 
+            print("\033[91m\nNo screen text found!\n\033[0m")
+            available_commands = None
+            return False, None
+
+        # check if any of the top level commands are in the screen text
+        commands_found = []
+        for category in commands.values():
+            for cmd in category.values():
+                if cmd.name.lower() in screen_text.lower():
+                    commands_found.append(cmd.name.lower())
+                    print(f"!!!!!!!!!!!!!!! FOUND CMD ON SCREEN: {cmd.name.lower()} !!!!!!!!!!!!!!!")
+
+        if commands_found:
+            available_commands = commands_found
+            break
+
+
+    # return the list of commands
+    return True, available_commands
+
 
 
 # import this with pip install keyboard
 import keyboard as kb
 import time
+prev_commands = []
 
-@user_proxy.register_for_execution(name="execute_commands")
-@command_interpreter_bot.register_for_llm(name="execute_commands", description="Executes game voice commands.")
-def execute_commands(string_commands_sequence: Annotated[List[str], "A list of voice-commands that result in a singular instruction to an NPC(s) in-game."]) -> CommandValidationResult:
+@user_proxy.register_for_execution(name="execute_command")
+@command_interpreter_bot.register_for_llm(name="execute_command", description="Executes a single game command-menu selection.")
+def execute_command(command: Annotated[str, "A game command for an in-game NPC command menu."], ) -> CommandValidationResult:
     
-    # log the LLM eval time
-    duration = time.time() - current_time
-    print ("\033[95m\n!!!!!!!!!!Executing keystrokes. Done in [", duration, "] seconds!\n\033[0m")
+    # some buffer
+    time.sleep(0.15)
 
-    # Flatten the list of Command objects from the commands dict, including sub-commands
+    global prev_commands
+    global available_commands
+    if available_commands == None:
+        check_avail_commands()
+    if available_commands == None:
+        print("\033[91m\nNo commands available on screen!\n\033[0m")
+        return False, f"No commands available in buffer! Check available commands again to refresh the buffer and before executing."
+
+    # remove lead and trailing whitespace, and lower
+    command = command.strip().lower()
+    print ("\033[95m\nAttempting execute command ",command,"\n\033[0m")
+
+    # else if the command provided isnt in the list of available commands
+    if command not in available_commands:
+        available_commands_str = ', '.join(available_commands)
+        print("\033[91m\nInvalid command: '{command}'.\n\033[0m")
+        return False, f"Invalid command: '{command}'. Current available commands are: " + available_commands_str
+
     commands_list_flattened = []
-    for category in commands.values():
-        for cmd in category.values():
+    for category in commands.values():  # Iterate over the categories
+        for cmd in category.values():  # Iterate over the Command objects in each category
             commands_list_flattened.append(cmd)
-            commands_list_flattened.extend(cmd.sub_commands.values())
+            commands_list_flattened.extend(cmd.sub_commands.values())  # Add sub-commands if any
 
-    for input_command in string_commands_sequence:
-        input_command_lower = input_command.lower()
+    command_lower = command.lower()
+    command_obj = next((cmd for cmd in commands_list_flattened if cmd.name.lower() == command_lower), None)
+    if not command_obj:
+        print(f"\033[91m\nInvalid command: '{command}'.\n\033[0m")
+        return False, f"Invalid command: '{command}'."
 
-        command_obj = next((cmd for cmd in commands_list_flattened if cmd.name.lower() == input_command_lower), None)
+    keystroke = command_obj.key
+    print ("\033[95m\n**!!!!!!!!!!Executing keystroke** ", keystroke, "\n\033[0m")
+    kb.press_and_release(keystroke)
+    time.sleep(0.15)
 
-        if not command_obj:
-            print("\033[91m\nInvalid command: '{input_command}'.\n\033[0m")
-            return False, f"Invalid command: '{input_command}'."
-        
-        # It's good! Execute the command
-        keystroke = command_obj.key
-        # Execute the keystroke using kb module
-        print ("\033[95m\n**Executing keystroke** ", keystroke, "\n\033[0m")
-        kb.press_and_release(keystroke)
-        time.sleep(0.15)
-
-    # !!! WE ARE DONE - RESET THE AGENTS !!!
-    user_proxy.reset()
-    command_interpreter_bot.reset()
-
-    return True, "Commands executed successfully! Please TERMINATE."
+    prev_commands.append(command)
+    prev_commands_str = ', '.join(prev_commands)
+    
+    available_commands = None # reset
+    return True, "Command executed successfully! This series of commands has now been executed: " + prev_commands_str
 
 
 # ********************************************************************************************************************
@@ -385,7 +433,9 @@ def execute_commands(string_commands_sequence: Annotated[List[str], "A list of v
 def handle_voice_command(user_message, callback = None):
 
     # for assessing how long it takes to generate the output
+    global current_time
     current_time = time.time()
+    prev_commands = []
 
     # Initiate conversation with autogen
     print("\033[95m\nGenerating output from prompt...\n\033[0m")
@@ -416,6 +466,65 @@ if __name__ == "__main__":
 
 
 
+#@user_proxy.register_for_execution(name="execute_commands")
+#@command_interpreter_bot.register_for_llm(name="execute_commands", description="Executes game voice commands.")
+# def execute_commands(string_commands_sequence: Annotated[List[str], "A list of voice-commands that result in a singular instruction to an NPC(s) in-game."]) -> CommandValidationResult:
+#     
+#     # log the LLM eval time
+#     duration = time.time() - current_time
+#     print ("\033[95m\n!!!!!!!!!!Executing keystrokes. Done in [", duration, "] seconds!\n\033[0m")
+# 
+#     # Flatten the list of Command objects from the commands dict, including sub-commands
+#     commands_list_flattened = []
+#     for category in commands.values():
+#         for cmd in category.values():
+#             commands_list_flattened.append(cmd)
+#             commands_list_flattened.extend(cmd.sub_commands.values())
+# 
+#     for input_command in string_commands_sequence:
+#         input_command_lower = input_command.lower()
+# 
+#         command_obj = next((cmd for cmd in commands_list_flattened if cmd.name.lower() == input_command_lower), None)
+# 
+#         if not command_obj:
+#             print("\033[91m\nInvalid command: '{input_command}'.\n\033[0m")
+#             return False, f"Invalid command: '{input_command}'."
+#         
+#         # It's good! Execute the command
+#         keystroke = command_obj.key
+#         # Execute the keystroke using kb module
+#         print ("\033[95m\n**Executing keystroke** ", keystroke, "\n\033[0m")
+#         kb.press_and_release(keystroke)
+#         time.sleep(0.15)
+# 
+#     # !!! WE ARE DONE - RESET THE AGENTS !!!
+#     user_proxy.reset()
+#     command_interpreter_bot.reset()
+# 
+#     return True, "Commands executed successfully! Please TERMINATE."
+
+
+#@user_proxy.register_for_execution(name="validate_commands")
+#@command_interpreter_bot.register_for_llm(name="validate_commands", description="Validates game voice commands.")
+# def validate_commands(commands: Annotated[List[str], "A series of game commands that result in NPC action(s)."]) -> CommandValidationResult:
+#     """
+#     Validates a list of commands against the defined menu structure,
+#     ensuring sub-menu commands follow the corresponding main menu commands.
+#     Returns a tuple (isValid, message).
+#     """
+#     print("\033[95m\nValidating commands...\n\033[0m")
+# 
+#     command_tree = CommandProcessor()
+#     is_valid, message = command_tree.validate_commands(commands)
+#     print(f"~~ Validation result: {is_valid}, {message} ~~")
+# 
+#     if not is_valid:
+#         print(f"\033[91m{message}\n\033[0m")
+#         return False, message
+# 
+#     print("\033[92mAll commands are valid!\n\033[0m")
+#     return True, "All commands are valid."
+# 
 
 
     ### OLD CODE ###

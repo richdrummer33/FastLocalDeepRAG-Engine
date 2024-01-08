@@ -3,8 +3,6 @@ import winsound
 import time
 import socket
 
-
-
 class NotificationType:
     WARNING = "C:\Windows\Media\Windows Exclamation.wav"
     SUCCESS = "success.wav"
@@ -112,7 +110,7 @@ class MistralChatbot:
             self.client.connect(('localhost', 12345))  # Connect to the server
             while not self.client:
                 time.sleep(5)
-                client.connect(('localhost', 12345))
+                self.client.connect(('localhost', 12345))
 
         #  await messages from the server
         data = self.client.recv(1024)
@@ -122,7 +120,7 @@ class MistralChatbot:
         text_to_llm = data.decode()
         # callback is this function
         response = self.generate_output(text_to_llm, self.run_socket_client)
-        client.close()
+        self.client.close()
 
 if __name__ == "__main__":
     # init chatbot
